@@ -1,0 +1,35 @@
+name: Go CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["go/**", ".github/workflows/go.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["go/**", ".github/workflows/go.yml"]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go-version: ["1.21", "1.24"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -v ./...
+
+      - name: Benchmark smoke check
+        run: go test -run=^$ -bench=BenchmarkSizeScaling/N=10000 -benchmem -benchtime=100ms ./...

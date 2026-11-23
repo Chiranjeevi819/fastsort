@@ -1,0 +1,29 @@
+name: JS CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["js/**", ".github/workflows/js.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["js/**", ".github/workflows/js.yml"]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: ["20", "22", "24"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Test
+        run: npm test

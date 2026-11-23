@@ -1,0 +1,22 @@
+# Go binaries and test artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+*.prof
+*.pprof
+
+# JS / TS
+**/node_modules/
+**/dist/
+*.tgz
+
+# IDE / OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
