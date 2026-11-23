@@ -28,7 +28,15 @@ Sorting large arrays of integers or fixed-width keys has historically forced a p
 
 ---
 
-## 2. High-Level Dispatch Architecture
+## 2. Worked Example (Visual Walkthrough)
+
+![How In-Place Maze256 Works — 6 Clear Steps](docs/maze256-example.jpg)
+
+> **Reading the 6 steps:** Starting from `src = [599, 510, 420, 180, 250, 310, 370, 100]`, Step 1 computes `min = 100`, `max = 599`, `span = 499` (`(v - 100) >> 7` for this 4-room illustration). Step 2 histograms the rooms and carves `src` into 4 contiguous room slices. Step 3 fills `buf[R3] = [599, 510]`, hitting unread elements `[370, 100]` at `src[6..7]`. Step 4 evacuates `[370, 100]` onto the bounded `pending` stack before burst-flushing `[599, 510]` into `src[6..7]`. Step 5 drains `pending` before reading new elements from `src` until every room is partitioned, and Step 6 finishes each room independently in L1 cache with zero heap allocations.
+
+---
+
+## 3. High-Level Dispatch Architecture
 
 ```text
 Input array A[0..n)
@@ -53,9 +61,9 @@ Input array A[0..n)
 
 ---
 
-## 3. Core Techniques Explained
+## 4. Core Techniques Explained
 
-### 3.1 Range-Adaptive Span Compression
+### 4.1 Range-Adaptive Span Compression
 
 Traditional fixed-width radix sorts always run 8 passes on 64-bit integers (4 passes on 32-bit), even if every value lies inside a narrow window like `[1_700_000_000, 1_700_000_200]`. They also require separate code paths or sign-bit flipping for signed vs. unsigned types.
 
@@ -75,7 +83,7 @@ Because two's-complement unsigned subtraction preserves ordering across the enti
 
 ---
 
-### 3.2 Cache-Line Block-Buffered Scatter & Bounded Spill Stack Proof
+### 4.2 Cache-Line Block-Buffered Scatter & Bounded Spill Stack Proof
 
 In a 256-way in-place scatter, writing one element at a time to 256 scattered locations thrashes the L1/L2 cache. Inspired by **IPS²Ra**, Maze256 assigns every room `r` a small fixed buffer `buf[r][0..K)` where $K = \text{blockSize} = 8$ (64 bytes for `int64` = one full x86/ARM cache line; 32 bytes for `int32`).
 
@@ -117,7 +125,7 @@ Thus a fixed `[2048]T` stack array can **never overflow** on any input size $n$ 
 
 ---
 
-### 3.3 Adaptive In-Place Routing Gate
+### 4.3 Adaptive In-Place Routing Gate
 
 Block buffering shines when elements fan out across many buckets, amortizing cache-line writes across 256 rooms. However, on **skewed or sparse inputs** (e.g., 90% of values in 1 room, or only 4 active rooms):
 - Block buffering would unconditionally copy all $n$ elements into `buf` and write them back to `src`, even if 90% of them were already sitting in their target room!
@@ -138,7 +146,7 @@ In **Cycle-Leader Routing**:
 
 ---
 
-### 3.4 L1-Resident Hoisted Ping-Pong (`StackMazePingPong`)
+### 4.4 L1-Resident Hoisted Ping-Pong (`StackMazePingPong`)
 
 Once a subarray shrinks to $n \le 4096$ elements ($\le 32\text{ KB}$ for `int64`, $\le 16\text{ KB}$ for `int32`), both `src` and a scratch slice `aux` fit comfortably inside the CPU's L1/L2 cache. At this scale, simple sequential out-of-place scatter is faster than maintaining block buffers or chasing permutation cycles.
 
@@ -149,7 +157,7 @@ Once a subarray shrinks to $n \le 4096$ elements ($\le 32\text{ KB}$ for `int64`
 
 ---
 
-### 3.5 Sparse-Room Checkpoints
+### 4.5 Sparse-Room Checkpoints
 
 When only 3 out of 256 rooms are occupied, scanning all 256 histogram entries on every phase (routing, tail flushing, recursion) adds avoidable loop overhead.
 
@@ -158,7 +166,7 @@ When only 3 out of 256 rooms are occupied, scanning all 256 histogram entries on
 
 ---
 
-### 3.6 Multi-Core Hybrid Parallelism (`Maze256Parallel`)
+### 4.6 Multi-Core Hybrid Parallelism (`Maze256Parallel`)
 
 In Go, `Maze256Parallel` scales across up to `min(GOMAXPROCS, 32)` goroutines with **$O(\text{procs})$ metadata (~26 KB)** and **zero $O(n)$ auxiliary arrays**:
 
@@ -173,7 +181,7 @@ In Go, `Maze256Parallel` scales across up to `min(GOMAXPROCS, 32)` goroutines wi
 
 ---
 
-### 3.7 Runtime-Specific Optimizations
+### 4.7 Runtime-Specific Optimizations
 
 #### Go: Tiered `//go:noinline` Stack Frames
 Putting `[4096]T`, `[256][8]T`, and `[2048]T` (~64 KB for `int64`) directly inside `Maze256` would force Go to allocate and zero 64 KB of stack even when sorting 100 elements. Instead, `Maze256` dispatches to three `//go:noinline` frame wrappers:
@@ -200,9 +208,9 @@ V8 TurboFan achieves peak speed when hot loops operate on a single TypedArray ty
 
 ---
 
-## 4. Pseudocode
+## 5. Pseudocode
 
-### 4.1 Top-Level Dispatch (`Maze256`)
+### 5.1 Top-Level Dispatch (`Maze256`)
 
 ```text
 CONST SMALL_CUTOFF    = 256     // (48 in JS)
@@ -234,7 +242,7 @@ PROCEDURE Maze256(A[0..n)):
 
 ---
 
-### 4.2 Core Recursive Engine (`InPlaceMaze`)
+### 5.2 Core Recursive Engine (`InPlaceMaze`)
 
 ```text
 PROCEDURE InPlaceMaze(src[0..n), aux, buf, pending):
@@ -304,7 +312,7 @@ PROCEDURE InPlaceMaze(src[0..n), aux, buf, pending):
 
 ---
 
-### 4.3 Cache-Line Block-Buffered In-Place Scatter (`ScatterBlockBuffered`)
+### 5.3 Cache-Line Block-Buffered In-Place Scatter (`ScatterBlockBuffered`)
 
 ```text
 PROCEDURE ScatterBlockBuffered(src, minU, shift, activeSet, offsets, writePos, ends, buf, pending):
@@ -375,7 +383,7 @@ PROCEDURE ScatterBlockBuffered(src, minU, shift, activeSet, offsets, writePos, e
 
 ---
 
-### 4.4 Zero-Write Cycle-Leader Routing (`RouteCycleLeader`)
+### 5.4 Zero-Write Cycle-Leader Routing (`RouteCycleLeader`)
 
 ```text
 PROCEDURE RouteCycleLeader(src, minU, shift, activeSet, writePos, ends, lastRoom):
@@ -410,7 +418,7 @@ PROCEDURE RouteCycleLeader(src, minU, shift, activeSet, writePos, ends, lastRoom
 
 ---
 
-### 4.5 L1-Resident Hoisted Ping-Pong (`StackMazePingPong`)
+### 5.5 L1-Resident Hoisted Ping-Pong (`StackMazePingPong`)
 
 ```text
 PROCEDURE StackMazePingPong(src[0..n), dst[0..n), inAux):
@@ -473,7 +481,7 @@ PROCEDURE StackMazePingPong(src[0..n), dst[0..n), inAux):
 
 ---
 
-### 4.6 Multi-Core Hybrid Parallel Sort (`Maze256Parallel`)
+### 5.6 Multi-Core Hybrid Parallel Sort (`Maze256Parallel`)
 
 ```text
 CONST PARALLEL_CUTOFF     = 32768
@@ -567,7 +575,7 @@ PROCEDURE ParallelSplitAndMaze(data[0..n), depth):
 
 ---
 
-### 4.7 IEEE-754 `Float32` Zero-Copy Order Involution (JS)
+### 5.7 IEEE-754 `Float32` Zero-Copy Order Involution (JS)
 
 ```text
 PROCEDURE Maze256Float32(floats[0..n)):
@@ -595,7 +603,7 @@ PROCEDURE Maze256Float32(floats[0..n)):
 
 ---
 
-## 5. Complexity & Space Analysis
+## 6. Complexity & Space Analysis
 
 Let $n$ be the number of elements, $W \in \{8, 16, 32, 64\}$ be the key bit-width, and $B_{\text{span}} = \lceil \log_2(\max - \min + 1) \rceil \le W$ be the active bit-span of the input.
 
@@ -611,7 +619,7 @@ Let $n$ be the number of elements, $W \in \{8, 16, 32, 64\}$ be the key bit-widt
 
 ---
 
-## 6. Inspirations & References
+## 7. Inspirations & References
 
 - **American Flag Sort** — P. M. McIlroy, K. Bostic, M. D. McIlroy, *"Engineering Radix Sort"*, Computing Systems, 1993. (In-place MSD radix cycle routing.)
 - **Ska Sort** — Malte Skarupke, *"I Wrote a Faster Sorting Algorithm"*, 2016. (In-place MSD radix engineering and base-case tuning.)

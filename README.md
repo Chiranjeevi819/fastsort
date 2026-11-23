@@ -87,6 +87,8 @@ See full benchmark tables and API documentation in [go/README.md](go/README.md) 
 ├── .github/workflows/
 │   ├── go.yml
 │   └── js.yml
+├── docs/
+│   └── maze256-example.jpg    # Step-by-step visual walkthrough diagram
 ├── LICENSE
 ├── ALGORITHM.md               # Algorithm deep dive, proof & pseudocode
 └── README.md
