@@ -22,6 +22,8 @@
 
 **In-Place Maze256** is an in-place, range-adaptive 8-bit Most-Significant-Digit (MSD) radix sort inspired by Ska Sort and IPS²Ra, tailored to each host runtime's memory and cache model (Go's stack/escape analysis and bounds-check elimination; V8 TurboFan's monomorphic `Int32Array` loops).
 
+> For the full deep dive, problem breakdown, bounded spill-stack proof, and pseudocode, see **[ALGORITHM.md](ALGORITHM.md)**.
+
 ### How It Works
 
 ```text
@@ -86,6 +88,7 @@ See full benchmark tables and API documentation in [go/README.md](go/README.md) 
 │   ├── go.yml
 │   └── js.yml
 ├── LICENSE
+├── ALGORITHM.md               # Algorithm deep dive, proof & pseudocode
 └── README.md
 ```
 
