@@ -206,6 +206,14 @@ V8 TurboFan achieves peak speed when hot loops operate on a single TypedArray ty
   5. Applies the **exact same involution** $f(f(u)) = u$ to restore the original IEEE-754 float bits.
 - **8-bit & 16-bit TypedArrays:** Route directly to dedicated 1-pass range-adaptive counting sort (`COUNTS` / `COUNTS_16`), achieving 9x–10.7x speedups over V8 `.sort()`.
 
+#### Rust / LLVM: `MaybeUninit` Tiered Frames, Spread-Out Range Propagation & Single-Scope Parallelism
+Rust's standard `slice::sort_unstable` (`ipnsort`) already uses branchless partitioning and sorting networks, so the Rust implementation pairs In-Place Maze256 with LLVM-focused optimizations:
+- **Uninitialized Tiered Stack Frames (`MaybeUninit<T>`):** `#[inline(never)]` wrappers (`in_place_maze_small`, `in_place_maze_med`, `in_place_maze_large`) keep all buffers on the stack (`0 B` heap, `no_std`-ready) without zero-initializing up to 64 KB on entry.
+- **Spread-Out Range Propagation:** When a level is spread out (`active_rooms >= 32`), child recursive calls receive `(min_u, shift)` directly so L1 ping-pong leaves skip redundant `min`/`max` full-array scans, automatically falling back to `min`/`max` if a sub-bucket becomes skewed.
+- **4-Way Unrolled Histograms, `[u16; 256]` L1 Tables & Sorting-Network Leaves:** Large histograms accumulate into four independent `[usize; 256]` tables to avoid store-to-load forwarding stalls; L1 ping-pong metadata uses compact `[u16; 256]` tables (512 bytes each); leaves `<= 128` delegate to `slice::sort_unstable` (branchless sorting networks); 8-bit types (`i8`/`u8`) fill via vectorized `memset` (`slice::fill`) at `0.64 ns/el`.
+- **Single-Scope Barrier + Parallel Split (`maze256_parallel`):** Runs parallel min/max + monotonicity detection (and parallel reverse / parallel 8-bit counting fill) inside a single `std::thread::scope` + `std::sync::Barrier`, then partitions general keys (`span >= 256`) in parallel via median-of-65 branchless BlockQuicksort / 3-way Dutch National Flag into balanced chunks sorted concurrently across all cores by `maze256`.
+- **Exact `f32`/`f64` `total_cmp` Involution:** Reinterprets `&mut [f32]`/`&mut [f64]` in-place as `&mut [i32]`/`&mut [i64]` using `u ^ ((u >> 31) & 0x7fffffff)` (or `>> 63` for `f64`), which is an exact order isomorphism with Rust's `f32::total_cmp` and `f64::total_cmp` across all bit patterns including `-NaN` and `+NaN`.
+
 ---
 
 ## 5. Pseudocode
@@ -607,15 +615,15 @@ PROCEDURE Maze256Float32(floats[0..n)):
 
 Let $n$ be the number of elements, $W \in \{8, 16, 32, 64\}$ be the key bit-width, and $B_{\text{span}} = \lceil \log_2(\max - \min + 1) \rceil \le W$ be the active bit-span of the input.
 
-| Metric | `Maze256` (Go) | `Maze256Parallel` (Go) | `maze256` (JS/TS) |
-|---|---|---|---|
-| **Best-case time** (monotonic / constant) | $O(n)$ | $O(n / P)$ | $O(n)$ |
-| **Narrow-span time** ($\text{span} < 256$) | $O(n)$ (1 pass) | $O(n / P)$ | $O(n)$ (1 pass) |
-| **Expected & Worst-case time** | $O(n \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O((n / P) \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O(n \cdot \lceil B_{\text{span}} / 8 \rceil)$ |
-| **Max recursion depth** | $\le \lceil W / 8 \rceil \le 8$ | $\le \lceil W / 8 \rceil + \log_2 P + 2$ | $\le \lceil 32 / 8 \rceil = 4$ |
-| **Per-call heap allocations** | **`0 B/op`, `0 allocs/op`** | $O(P)$ (~26 KB for $P=8$) | **`0 B/op`** (hoisted realm pools) |
-| **Auxiliary space** | $O(1)$ (fixed stack frames, $\le 64\text{ KB}$) | $O(P)$ (no $O(n)$ buffers) | $O(1)$ (~300 KB once per realm) |
-| **Stability** | Unstable | Unstable | Unstable (exact `TypedArray.sort()` float order) |
+| Metric | `Maze256` (Go) | `Maze256Parallel` (Go) | `maze256` (JS/TS) | `maze256` (Rust) | `maze256_parallel` (Rust) |
+|---|---|---|---|---|---|
+| **Best-case time** (monotonic / constant) | $O(n)$ | $O(n / P)$ | $O(n)$ | $O(n)$ | $O(n / P)$ |
+| **Narrow-span time** ($\text{span} < 256$) | $O(n)$ (1 pass) | $O(n / P)$ | $O(n)$ (1 pass) | $O(n)$ (1 pass) | $O(n / P)$ |
+| **Expected & Worst-case time** | $O(n \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O((n / P) \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O(n \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O(n \cdot \lceil B_{\text{span}} / 8 \rceil)$ | $O((n / P) \cdot \lceil B_{\text{span}} / 8 \rceil)$ |
+| **Max recursion depth** | $\le \lceil W / 8 \rceil \le 8$ | $\le \lceil W / 8 \rceil + \log_2 P + 2$ | $\le \lceil 32 / 8 \rceil = 4$ | $\le \lceil W / 8 \rceil \le 8$ | $\le \lceil W / 8 \rceil + \lceil \log_2 P \rceil$ |
+| **Per-call heap allocations** | **`0 B/op`, `0 allocs/op`** | $O(P)$ (~26 KB for $P=8$) | **`0 B/op`** (hoisted realm pools) | **`0 B`, `0 allocs`** (`no_std`) | $O(P)$ (OS thread stacks only) |
+| **Auxiliary space** | $O(1)$ (fixed stack frames, $\le 64\text{ KB}$) | $O(P)$ (no $O(n)$ buffers) | $O(1)$ (~300 KB once per realm) | $O(1)$ (fixed `MaybeUninit` stack, $\le 64\text{ KB}$) | $O(P)$ (no $O(n)$ buffers) |
+| **Stability** | Unstable | Unstable | Unstable (exact `TypedArray.sort()` float order) | Unstable (exact `f32`/`f64::total_cmp`) | Unstable (exact `f32`/`f64::total_cmp`) |
 
 ---
 

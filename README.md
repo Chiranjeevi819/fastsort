@@ -3,6 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Chiranjeevi819/fastsort/go.svg)](https://pkg.go.dev/github.com/Chiranjeevi819/fastsort/go)
 [![Go CI](https://github.com/Chiranjeevi819/fastsort/actions/workflows/go.yml/badge.svg)](https://github.com/Chiranjeevi819/fastsort/actions/workflows/go.yml)
 [![JS CI](https://github.com/Chiranjeevi819/fastsort/actions/workflows/js.yml/badge.svg)](https://github.com/Chiranjeevi819/fastsort/actions/workflows/js.yml)
+[![Rust CI](https://github.com/Chiranjeevi819/fastsort/actions/workflows/rust.yml/badge.svg)](https://github.com/Chiranjeevi819/fastsort/actions/workflows/rust.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 `fastsort` is a multi-language, zero-dependency, **in-place** sorting library built around **In-Place Maze256** — a range-adaptive, in-place block-buffered MSD radix sort inspired by Ska Sort and IPS²Ra.
@@ -15,12 +16,13 @@
 |---|---|---|---|
 | **Go** | `github.com/Chiranjeevi819/fastsort/go` | [go/](go/) | Pure Go 1.21+, all 11 integer types, `0 B/op` single-threaded (`Maze256`) + multi-core `Maze256Parallel` (**7.5x–10x** vs. `slices.Sort`, up to **16x** on `int8`) |
 | **JavaScript / TypeScript** | `@chiranjeevi819/fastsort` | [js/](js/) | Zero-dep ESM + `.d.ts`, zero per-call allocs on TypedArrays (`Int8`–`Uint32`, `Float32Array`), **1.7x–10.7x** faster than V8 `TypedArray.prototype.sort()` |
+| **Rust** | `fastsort` | [rust/](rust/) | Zero-dep, `no_std`-compatible `0 B` heap single-threaded (`maze256`) + `std::thread::scope` multi-core `maze256_parallel`, all 10 integer types + `f32`/`f64` (`total_cmp`), **2.0x–3.7x** faster than `slice::sort_unstable` (**11.5x** on `i8` at `0.64 ns/el`) |
 
 ---
 
 ## Algorithm: In-Place Maze256
 
-**In-Place Maze256** is an in-place, range-adaptive 8-bit Most-Significant-Digit (MSD) radix sort inspired by Ska Sort and IPS²Ra, tailored to each host runtime's memory and cache model (Go's stack/escape analysis and bounds-check elimination; V8 TurboFan's monomorphic `Int32Array` loops).
+**In-Place Maze256** is an in-place, range-adaptive 8-bit Most-Significant-Digit (MSD) radix sort inspired by Ska Sort and IPS²Ra, tailored to each host runtime's memory and cache model (Go's stack/escape analysis and bounds-check elimination; V8 TurboFan's monomorphic `Int32Array` loops; Rust/LLVM's `MaybeUninit` tiered stack frames, branchless sorting-network leaves, and barrier-synchronized `std::thread::scope` parallelism).
 
 > For the full deep dive, problem breakdown, bounded spill-stack proof, and pseudocode, see **[ALGORITHM.md](ALGORITHM.md)**.
 
@@ -59,8 +61,13 @@ Measured on **Intel Core i7-8565U @ 1.80GHz** (4 cores / 8 threads, `windows/amd
 | Node v24 `maze256Uint32` (`Uint32Array`, 1M) | **59.97 ns/el** | 117.73 ns/el (`V8 .sort()`) | **1.96x** |
 | Node v24 `maze256` (`Int16Array`, 1M) | **10.68 ns/el** | 114.13 ns/el (`V8 .sort()`) | **10.69x** |
 | Node v24 `maze256` (`Int8Array`, 1M) | **5.56 ns/el** | 50.75 ns/el (`V8 .sort()`) | **9.13x** |
+| Rust `maze256_parallel` (`i64`, Uniform 64-bit, 8T) | **9.91 ns/el** | 20.64 ns/el (`sort_unstable`) | **2.08x** |
+| Rust `maze256_parallel` (`i32`, 1M, 8T) | **8.67 ns/el** | 18.26 ns/el (`sort_unstable`) | **2.11x** |
+| Rust `maze256_f32_parallel` (`f32`, 1M, `total_cmp`) | **12.47 ns/el** | 43.50 ns/el (`sort_unstable_by`) | **3.49x** |
+| Rust `maze256_parallel` (`i16`, 1M, 8T) | **6.45 ns/el** | 24.02 ns/el (`sort_unstable`) | **3.73x** |
+| Rust `maze256` (`i8`, 1M, `0 B` heap) | **0.64 ns/el** | 7.35 ns/el (`sort_unstable`) | **11.49x** |
 
-See full benchmark tables and API documentation in [go/README.md](go/README.md) and [js/README.md](js/README.md).
+See full benchmark tables and API documentation in [go/README.md](go/README.md), [js/README.md](js/README.md), and [rust/README.md](rust/README.md).
 
 ---
 
@@ -84,9 +91,20 @@ See full benchmark tables and API documentation in [go/README.md](go/README.md) 
 │   ├── src/index.d.ts
 │   ├── test/maze256.test.mjs
 │   └── bench/bench.mjs
+├── rust/                      # Rust crate (fastsort, zero deps, no_std-ready)
+│   ├── Cargo.toml
+│   ├── README.md
+│   ├── src/lib.rs
+│   ├── src/maze256.rs
+│   ├── src/parallel.rs
+│   ├── src/float.rs
+│   ├── tests/sort_tests.rs
+│   ├── tests/zero_alloc.rs
+│   └── benches/bench.rs
 ├── .github/workflows/
 │   ├── go.yml
-│   └── js.yml
+│   ├── js.yml
+│   └── rust.yml
 ├── docs/
 │   └── maze256-example.jpg    # Step-by-step visual walkthrough diagram
 ├── LICENSE
@@ -102,6 +120,7 @@ Each language subdirectory is versioned and published independently:
 
 - **Go:** tag `go/v0.1.0` → `go get github.com/Chiranjeevi819/fastsort/go@v0.1.0`
 - **JS/TS:** tag `js/v0.1.0` → `cd js && npm publish --access public`
+- **Rust:** tag `rust/v0.1.0` → `cd rust && cargo publish`
 
 ---
 
