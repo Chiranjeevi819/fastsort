@@ -92,6 +92,41 @@ pub fn maze256_parallel<T: Integer>(data: &mut [T]) {
         return;
     }
 
+    // Fast O(1) probe on 65 evenly spaced samples: if the input is clearly
+    // non-monotonic AND has span >= 256, skip the full Phase 1 scan and thread
+    // spawn barrier, going straight to parallel partitioning + Maze256 leaves.
+    {
+        let step = n / 65;
+        let first = data[0];
+        let mut mn = first;
+        let mut mx = first;
+        let mut asc = true;
+        let mut desc = true;
+        let mut prev = first;
+        for i in 1..65 {
+            let v = data[i * step];
+            if v < mn {
+                mn = v;
+            } else if v > mx {
+                mx = v;
+            }
+            if v < prev {
+                asc = false;
+            } else if v > prev {
+                desc = false;
+            }
+            prev = v;
+        }
+        let sample_span = mx.to_u64().wrapping_sub(mn.to_u64());
+        if !asc && !desc && sample_span >= 256 {
+            let max_depth = (usize::BITS - (procs - 1).leading_zeros()).max(1);
+            let size_depth = (usize::BITS - (n / PARALLEL_CUTOFF).max(1).leading_zeros()).max(1);
+            let depth = max_depth.min(size_depth);
+            parallel_split_and_maze(data, depth);
+            return;
+        }
+    }
+
     let data_ptr = SendMutPtr(data.as_mut_ptr());
     let barrier = Barrier::new(procs);
 

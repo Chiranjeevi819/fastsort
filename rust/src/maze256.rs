@@ -7,8 +7,8 @@ pub(crate) const SMALL_CUTOFF: usize = 256;
 pub(crate) const LEAF_CUTOFF: usize = 128;
 pub(crate) const SMALL_STACK_SIZE: usize = 1024;
 pub(crate) const STACK_BUF_SIZE: usize = 4096;
-pub(crate) const BLOCK_SIZE: usize = 8; // 8 x i64 = 64-byte cache line
-pub(crate) const PENDING_CAP: usize = 2048; // Provably bounded: <= 256*(BLOCK_SIZE-1)+1 = 1793 < 2048
+pub(crate) const BLOCK_SIZE: usize = 32; // 32 x i64 = 256B (4 cache lines) per burst flush
+pub(crate) const PENDING_CAP: usize = 8192; // Provably bounded: <= 256*(BLOCK_SIZE-1)+1 = 7937 < 8192
 
 /// Sorts `data` in ascending order in-place using the **In-Place Maze256**
 /// algorithm: a range-adaptive 8-bit MSD radix sort with tiered stack frames,
@@ -597,8 +597,35 @@ pub(crate) fn stack_maze_pp<T: Integer>(
 
     // SAFETY: All `n` elements of `dst` were initialized by the scatter loop above.
     let dst_init = unsafe { core::slice::from_raw_parts_mut(dst_ptr, n) };
+    let src_ptr = src.as_mut_ptr();
+
+    // Fast path: when every bucket fits in the leaf cutoff (the common case at
+    // Level 2 of a 1M-element sort), sort every bucket inline with zero
+    // recursion and finish with a single bulk copy back if needed.
+    if max_count <= LEAF_CUTOFF {
+        for (z, &mask) in room_mask.iter().enumerate() {
+            let mut rm = mask;
+            while rm != 0 {
+                let r = (z << 6) | (rm.trailing_zeros() as usize);
+                rm &= rm - 1;
+                let c = counts[r] as usize;
+                if c > 1 {
+                    let st = offsets[r] as usize;
+                    dst_init[st..st + c].sort_unstable();
+                }
+            }
+        }
+        if !in_aux {
+            // SAFETY: `dst_init` and `src_ptr` are non-overlapping slices of length `n`.
+            unsafe {
+                ptr::copy_nonoverlapping(dst_init.as_ptr(), src_ptr, n);
+            }
+        }
+        return;
+    }
+
     let src_uninit =
-        unsafe { core::slice::from_raw_parts_mut(src.as_mut_ptr() as *mut MaybeUninit<T>, n) };
+        unsafe { core::slice::from_raw_parts_mut(src_ptr as *mut MaybeUninit<T>, n) };
 
     let next_known = if max_count < (n * 3) / 4 {
         Some((min_u, shift))
@@ -613,9 +640,15 @@ pub(crate) fn stack_maze_pp<T: Integer>(
             rm &= rm - 1;
             let c = counts[r] as usize;
             let st = offsets[r] as usize;
-            if c == 1 {
+            if c <= LEAF_CUTOFF {
+                if c > 1 {
+                    dst_init[st..st + c].sort_unstable();
+                }
                 if !in_aux {
-                    src_uninit[st].write(dst_init[st]);
+                    // SAFETY: `dst_init[st..st+c]` and `src_ptr.add(st)` are non-overlapping.
+                    unsafe {
+                        ptr::copy_nonoverlapping(dst_init.as_ptr().add(st), src_ptr.add(st), c);
+                    }
                 }
                 continue;
             }

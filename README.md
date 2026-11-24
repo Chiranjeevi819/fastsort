@@ -16,7 +16,7 @@
 |---|---|---|---|
 | **Go** | `github.com/Chiranjeevi819/fastsort/go` | [go/](go/) | Pure Go 1.21+, all 11 integer types, `0 B/op` single-threaded (`Maze256`) + multi-core `Maze256Parallel` (**7.5x–10x** vs. `slices.Sort`, up to **16x** on `int8`) |
 | **JavaScript / TypeScript** | `@chiranjeevi819/fastsort` | [js/](js/) | Zero-dep ESM + `.d.ts`, zero per-call allocs on TypedArrays (`Int8`–`Uint32`, `Float32Array`), **1.7x–10.7x** faster than V8 `TypedArray.prototype.sort()` |
-| **Rust** | `fastsort` | [rust/](rust/) | Zero-dep, `no_std`-compatible `0 B` heap single-threaded (`maze256`) + `std::thread::scope` multi-core `maze256_parallel`, all 10 integer types + `f32`/`f64` (`total_cmp`), **2.0x–3.7x** faster than `slice::sort_unstable` (**11.5x** on `i8` at `0.64 ns/el`) |
+| **Rust** | `fastsort` | [rust/](rust/) | Zero-dep, `no_std`-compatible `0 B` heap single-threaded (`maze256`) + `std::thread::scope` multi-core `maze256_parallel`, all 10 integer types + `f32`/`f64` (`total_cmp`), **2.3x–4.6x** faster than `slice::sort_unstable` (**11.5x** on `i8` at `0.62 ns/el`) |
 
 ---
 
@@ -61,11 +61,12 @@ Measured on **Intel Core i7-8565U @ 1.80GHz** (4 cores / 8 threads, `windows/amd
 | Node v24 `maze256Uint32` (`Uint32Array`, 1M) | **59.97 ns/el** | 117.73 ns/el (`V8 .sort()`) | **1.96x** |
 | Node v24 `maze256` (`Int16Array`, 1M) | **10.68 ns/el** | 114.13 ns/el (`V8 .sort()`) | **10.69x** |
 | Node v24 `maze256` (`Int8Array`, 1M) | **5.56 ns/el** | 50.75 ns/el (`V8 .sort()`) | **9.13x** |
-| Rust `maze256_parallel` (`i64`, Uniform 64-bit, 8T) | **9.91 ns/el** | 20.64 ns/el (`sort_unstable`) | **2.08x** |
-| Rust `maze256_parallel` (`i32`, 1M, 8T) | **8.67 ns/el** | 18.26 ns/el (`sort_unstable`) | **2.11x** |
-| Rust `maze256_f32_parallel` (`f32`, 1M, `total_cmp`) | **12.47 ns/el** | 43.50 ns/el (`sort_unstable_by`) | **3.49x** |
-| Rust `maze256_parallel` (`i16`, 1M, 8T) | **6.45 ns/el** | 24.02 ns/el (`sort_unstable`) | **3.73x** |
-| Rust `maze256` (`i8`, 1M, `0 B` heap) | **0.64 ns/el** | 7.35 ns/el (`sort_unstable`) | **11.49x** |
+| Rust `maze256` (`i64`, Uniform 64-bit, `0 B` heap) | **20.01 ns/el** | 23.48 ns/el (`sort_unstable`) | **1.17x** |
+| Rust `maze256_parallel` (`i64`, Uniform 64-bit, 8T) | **8.02 ns/el** | 23.48 ns/el (`sort_unstable`) | **2.93x** |
+| Rust `maze256_parallel` (`u32`, 1M, 8T) | **7.21 ns/el** | 18.28 ns/el (`sort_unstable`) | **2.54x** |
+| Rust `maze256_f32_parallel` (`f32`, 1M, `total_cmp`) | **9.49 ns/el** | 41.62 ns/el (`sort_unstable_by`) | **4.39x** |
+| Rust `maze256_parallel` (`i16`, 1M, 8T) | **4.94 ns/el** | 16.34 ns/el (`sort_unstable`) | **3.31x** |
+| Rust `maze256` (`i8`, 1M, `0 B` heap) | **0.64 ns/el** | 7.07 ns/el (`sort_unstable`) | **11.05x** |
 
 See full benchmark tables and API documentation in [go/README.md](go/README.md), [js/README.md](js/README.md), and [rust/README.md](rust/README.md).
 
