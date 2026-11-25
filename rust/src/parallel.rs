@@ -87,7 +87,7 @@ fn available_procs() -> usize {
 pub fn maze256_parallel<T: Integer>(data: &mut [T]) {
     let n = data.len();
     let procs = available_procs();
-    if procs <= 1 || n < PARALLEL_CUTOFF || (T::BITS == 8 && n < 2_000_000) {
+    if procs <= 1 || n < PARALLEL_CUTOFF || (T::BITS <= 16 && n < 2_000_000) {
         maze256(data);
         return;
     }

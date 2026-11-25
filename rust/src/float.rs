@@ -12,6 +12,34 @@ fn f64_involution(u: i64) -> i64 {
     u ^ ((u >> 63) & 0x7fff_ffff_ffff_ffff)
 }
 
+#[cfg(feature = "std")]
+fn par_apply_inplace<T: Send>(slice: &mut [T], f: fn(&mut [T])) {
+    const PAR_MAP_CUTOFF: usize = 131_072;
+    let n = slice.len();
+    if n < PAR_MAP_CUTOFF {
+        f(slice);
+        return;
+    }
+    let procs = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(1)
+        .clamp(1, 32);
+    if procs <= 1 {
+        f(slice);
+        return;
+    }
+    let chunk_size = n.div_ceil(procs);
+    std::thread::scope(|s| {
+        let mut rest = slice;
+        while rest.len() > chunk_size {
+            let (head, tail) = rest.split_at_mut(chunk_size);
+            rest = tail;
+            s.spawn(move || f(head));
+        }
+        f(rest);
+    });
+}
+
 /// Sorts `data` in ascending total order (matching [`f32::total_cmp`]) in-place
 /// with zero heap allocations using the **In-Place Maze256** algorithm.
 ///
@@ -95,13 +123,17 @@ pub fn maze256_f32_parallel(data: &mut [f32]) {
     // SAFETY: `f32` and `i32` have identical size (4 bytes) and alignment (4).
     let view = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut i32, n) };
 
-    for v in view.iter_mut() {
-        *v = f32_involution(*v);
-    }
+    par_apply_inplace(view, |chunk| {
+        for v in chunk.iter_mut() {
+            *v = f32_involution(*v);
+        }
+    });
     maze256_parallel(view);
-    for v in view.iter_mut() {
-        *v = f32_involution(*v);
-    }
+    par_apply_inplace(view, |chunk| {
+        for v in chunk.iter_mut() {
+            *v = f32_involution(*v);
+        }
+    });
 }
 
 /// Sorts `data` in ascending total order (matching [`f64::total_cmp`]) in-place
@@ -123,11 +155,15 @@ pub fn maze256_f64_parallel(data: &mut [f64]) {
     // SAFETY: `f64` and `i64` have identical size (8 bytes) and alignment (8).
     let view = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut i64, n) };
 
-    for v in view.iter_mut() {
-        *v = f64_involution(*v);
-    }
+    par_apply_inplace(view, |chunk| {
+        for v in chunk.iter_mut() {
+            *v = f64_involution(*v);
+        }
+    });
     maze256_parallel(view);
-    for v in view.iter_mut() {
-        *v = f64_involution(*v);
-    }
+    par_apply_inplace(view, |chunk| {
+        for v in chunk.iter_mut() {
+            *v = f64_involution(*v);
+        }
+    });
 }

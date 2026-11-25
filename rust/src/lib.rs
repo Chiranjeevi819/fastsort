@@ -66,6 +66,8 @@ mod sealed {
 pub trait Integer: Copy + Ord + Send + Sync + sealed::Sealed + 'static {
     /// Zero value of this integer type.
     const ZERO: Self;
+    /// Minimum value of this integer type mapped via [`Self::to_u64`].
+    const MIN_U64: u64;
     /// Bit width of this integer type.
     const BITS: u32;
     /// Whether this integer type is signed.
@@ -84,6 +86,11 @@ macro_rules! impl_integer {
         $(
             impl Integer for $t {
                 const ZERO: Self = 0;
+                const MIN_U64: u64 = if $signed {
+                    (<$t>::MIN as i64) as u64
+                } else {
+                    0
+                };
                 const BITS: u32 = <$t>::BITS;
                 const IS_SIGNED: bool = $signed;
 

@@ -61,6 +61,18 @@ Measured with `npm run bench` (`node bench/bench.mjs`) on **Node v24.7.0** (Inte
 | 100,000 | **91.24 ns/el** | 147.18 ns/el | **1.61x** |
 | 1,000,000 | **63.45 ns/el** | 110.28 ns/el | **1.74x** |
 
+### Apples-to-Apples (`N = 1,000,000 Int32Array`, In-Place `0 B` vs. `O(n)` Buffer)
+
+Comparison against a 4-pass out-of-place LSD Radix Sort (`4 MB` `Int32Array` allocation per call), a hand-rolled `Int32Array` QuickSort (`0 B/call`), and V8's built-in `TypedArray.prototype.sort()` (`0 B/call` Timsort):
+
+| Dataset | `fastsort.maze256Int32` (`0 B/call`) | Out-of-Place LSD (`4 MB/call`) | JS QuickSort (`0 B/call`) | V8 `.sort()` (`0 B/call`) |
+|---|---:|---:|---:|---:|
+| Uniform 32-bit | 71.24 ns/el | **30.53 ns/el** | 155.53 ns/el | 131.33 ns/el |
+| Narrow `[0, 1000)` | 33.43 ns/el | **25.71 ns/el** | 104.59 ns/el | 78.16 ns/el |
+| Few Unique (16) | **8.59 ns/el** | 45.87 ns/el | 65.95 ns/el | 30.56 ns/el |
+| Exp Outliers (99/1) | 55.60 ns/el | **31.56 ns/el** | 89.18 ns/el | 58.82 ns/el |
+| Nearly Sorted | 49.05 ns/el | 52.25 ns/el | 28.57 ns/el | **17.39 ns/el** |
+
 ---
 
 ## Development

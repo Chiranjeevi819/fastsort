@@ -37,6 +37,20 @@ pub fn maze256<T: Integer>(data: &mut [T]) {
     if handle_monotonic(data) {
         return;
     }
+
+    // Specialized L2-resident 1-pass counting sort for 16-bit types (i16 / u16)
+    // once the slice is large enough to amortize the 65,536-entry counter table.
+    if T::BITS == 16 && n > STACK_BUF_SIZE {
+        if n <= u16::MAX as usize {
+            sort_16bit_u16(data);
+        } else if n <= u32::MAX as usize {
+            sort_16bit_u32(data);
+        } else {
+            in_place_maze_large(data);
+        }
+        return;
+    }
+
     if n <= SMALL_STACK_SIZE {
         in_place_maze_small(data);
         return;
@@ -46,6 +60,11 @@ pub fn maze256<T: Integer>(data: &mut [T]) {
         return;
     }
     in_place_maze_large(data);
+}
+
+#[inline(always)]
+fn sort_leaf<T: Integer>(s: &mut [T]) {
+    s.sort_unstable();
 }
 
 #[inline(never)]
@@ -81,6 +100,76 @@ fn sort_8bit<T: Integer>(data: &mut [T]) {
 }
 
 #[inline(never)]
+fn sort_16bit_u16<T: Integer>(data: &mut [T]) {
+    let mut counts = [0u16; 65_536];
+    let min_u = T::MIN_U64;
+    for &v in data.iter() {
+        let idx = v.to_u64().wrapping_sub(min_u) as u16 as usize;
+        counts[idx] += 1;
+    }
+    let mut out = 0usize;
+    for (r, &c) in counts.iter().enumerate() {
+        let c = c as usize;
+        if c > 0 {
+            let val = T::from_u64(min_u.wrapping_add(r as u64));
+            data[out..out + c].fill(val);
+            out += c;
+        }
+    }
+}
+
+#[inline(never)]
+fn sort_16bit_u32<T: Integer>(data: &mut [T]) {
+    let mut counts = [0u32; 65_536];
+    let min_u = T::MIN_U64;
+    for &v in data.iter() {
+        let idx = v.to_u64().wrapping_sub(min_u) as u16 as usize;
+        counts[idx] += 1;
+    }
+    let mut out = 0usize;
+    for (r, &c) in counts.iter().enumerate() {
+        let c = c as usize;
+        if c > 0 {
+            let val = T::from_u64(min_u.wrapping_add(r as u64));
+            data[out..out + c].fill(val);
+            out += c;
+        }
+    }
+}
+
+/// Direct 1-pass counting sort when any integer type's active span fits in 16 bits
+/// (`span <= 65_535` and `n <= u32::MAX`). Only zeroes `counts[0..=span]`.
+#[inline(never)]
+fn sort_span_16bit<T: Integer>(src: &mut [T], min_u: u64, span: usize) {
+    let mut counts = [MaybeUninit::<u32>::uninit(); 65_536];
+    let len = span + 1;
+    // SAFETY: `len = span + 1 <= 65_536`, and `0` bytes are a valid `u32` representation.
+    let active_counts: &mut [u32] = unsafe {
+        let ptr = counts.as_mut_ptr() as *mut u32;
+        ptr::write_bytes(ptr, 0, len);
+        core::slice::from_raw_parts_mut(ptr, len)
+    };
+
+    for &v in src.iter() {
+        let idx = v.to_u64().wrapping_sub(min_u) as u16 as usize;
+        // SAFETY: By definition of `min_u` and `span`, every element satisfies `idx <= span < len`.
+        unsafe {
+            *active_counts.get_unchecked_mut(idx) += 1;
+        }
+    }
+
+    let mut out = 0usize;
+    for (r, &c) in active_counts.iter().enumerate() {
+        let c = c as usize;
+        if c > 0 {
+            let val = T::from_u64(min_u.wrapping_add(r as u64));
+            src[out..out + c].fill(val);
+            out += c;
+        }
+    }
+}
+
+#[inline(never)]
 fn in_place_maze_small<T: Integer>(data: &mut [T]) {
     let mut stack_aux = [MaybeUninit::<T>::uninit(); SMALL_STACK_SIZE];
     let n = data.len();
@@ -99,7 +188,7 @@ pub(crate) fn in_place_maze_large<T: Integer>(data: &mut [T]) {
     let mut stack_aux = [MaybeUninit::<T>::uninit(); STACK_BUF_SIZE];
     let mut buf = [[MaybeUninit::<T>::uninit(); BLOCK_SIZE]; 256];
     let mut pending = [MaybeUninit::<T>::uninit(); PENDING_CAP];
-    in_place_maze(data, &mut stack_aux, &mut buf, &mut pending, None);
+    in_place_maze(data, &mut stack_aux, &mut buf, &mut pending, None, 0);
 }
 
 #[inline(always)]
@@ -114,6 +203,31 @@ fn scan_min_max<T: Integer>(src: &[T]) -> (T, T) {
         }
     }
     (min_val, max_val)
+}
+
+/// Probes 64 evenly spaced elements in O(1) to check whether the slice already
+/// spans the full bit-width `T::BITS`. When true, `min_u = T::MIN_U64` and
+/// `bit_len = T::BITS` are exact, saving a full-array DRAM `scan_min_max` pass.
+#[inline(always)]
+fn probe_full_type_span<T: Integer>(src: &[T]) -> bool {
+    let n = src.len();
+    if n < 16_384 {
+        return false;
+    }
+    let step = n >> 6;
+    let mut mn = src[0];
+    let mut mx = mn;
+    for i in 1..64 {
+        let v = src[i * step];
+        if v < mn {
+            mn = v;
+        } else if v > mx {
+            mx = v;
+        }
+    }
+    let sample_span = mx.to_u64().wrapping_sub(mn.to_u64());
+    let sample_bits = 64 - sample_span.leading_zeros();
+    sample_bits == T::BITS
 }
 
 #[inline(always)]
@@ -156,10 +270,11 @@ fn in_place_maze<T: Integer>(
     buf: &mut [[MaybeUninit<T>; BLOCK_SIZE]; 256],
     pending: &mut [MaybeUninit<T>; PENDING_CAP],
     known_range: Option<(u64, u32)>,
+    skew_streak: u8,
 ) {
     let n = src.len();
     if n <= LEAF_CUTOFF {
-        src.sort_unstable();
+        sort_leaf(src);
         return;
     }
     if n <= STACK_BUF_SIZE {
@@ -170,14 +285,18 @@ fn in_place_maze<T: Integer>(
     let (min_u, bit_len, span_opt) = match known_range {
         Some((mu, rem_bits)) => (mu, rem_bits, None),
         None => {
-            let (min_val, max_val) = scan_min_max(src);
-            if min_val == max_val {
-                return;
+            if skew_streak == 0 && probe_full_type_span(src) {
+                (T::MIN_U64, T::BITS, None)
+            } else {
+                let (min_val, max_val) = scan_min_max(src);
+                if min_val == max_val {
+                    return;
+                }
+                let min_u = min_val.to_u64();
+                let span = max_val.to_u64().wrapping_sub(min_u);
+                let bit_len = 64 - span.leading_zeros();
+                (min_u, bit_len, Some(span))
             }
-            let min_u = min_val.to_u64();
-            let span = max_val.to_u64().wrapping_sub(min_u);
-            let bit_len = 64 - span.leading_zeros();
-            (min_u, bit_len, Some(span))
         }
     };
 
@@ -212,6 +331,15 @@ fn in_place_maze<T: Integer>(
         return;
     }
 
+    // Direct 1-pass counting sort when active span fits in 16 bits (e.g. narrow
+    // windows or dense cores after outlier peeling).
+    if let Some(span) = span_opt {
+        if bit_len <= 16 && n >= 8_192 && n <= u32::MAX as usize {
+            sort_span_16bit(src, min_u, span as usize);
+            return;
+        }
+    }
+
     // Pass 1: Histogram on top 8 active bits (u8 index eliminates bounds checks).
     let shift = bit_len - 8;
     histogram_shift(src, min_u, shift, &mut counts);
@@ -242,43 +370,59 @@ fn in_place_maze<T: Integer>(
         }
     }
 
-    // Pass 2: Adaptive in-place routing.
-    let spread_out = active_rooms >= 16 && max_count < (n * 3) / 4;
-    if active_rooms > 1 {
-        if spread_out {
-            // Spread-out data: cache-line block-buffered in-place scatter.
-            scatter_block_buffered_with_scratch(
-                src,
-                min_u,
-                shift,
-                &room_mask,
-                &offsets,
-                &mut write_pos,
-                &ends,
-                buf,
-                pending,
-            );
-        } else {
-            // Skewed or sparse data: zero-write cycle-leader routing.
-            route_cycle_leader(
-                src,
-                min_u,
-                shift,
-                &room_mask,
-                &mut write_pos,
-                &ends,
-                last_room,
-            );
-        }
+    // If every element fell into a single bucket (possible when `known_range`
+    // skipped an empty high byte), re-run with an exact `scan_min_max`.
+    if active_rooms == 1 {
+        in_place_maze(src, stack_aux, buf, pending, None, skew_streak);
+        return;
     }
 
-    // For spread-out passes, propagate `(min_u, shift)` down to skip redundant
-    // min/max scans on the next level; for skewed passes, re-scan min/max to
-    // compress unused bit gaps immediately.
+    let spread_out = active_rooms >= 16 && max_count < (n * 3) / 4;
+
+    // Multi-level skew guard: one skewed cycle-leader pass cleanly separates
+    // bimodal outliers (e.g. 99% core + 1% outliers), but if the dominant child
+    // is *still* skewed on the next level (e.g. Log-Uniform or Staircase),
+    // branchless pattern-defeating quicksort (`ipnsort`) beats repeated O(n)
+    // radix scans across empty octaves while keeping 0 B heap allocations.
+    if !spread_out && skew_streak >= 1 {
+        src.sort_unstable();
+        return;
+    }
+
+    // Pass 2: Adaptive in-place routing.
+    if spread_out {
+        scatter_block_buffered_with_scratch(
+            src,
+            min_u,
+            shift,
+            &room_mask,
+            &offsets,
+            &mut write_pos,
+            &ends,
+            buf,
+            pending,
+        );
+    } else {
+        route_cycle_leader(
+            src,
+            min_u,
+            shift,
+            &room_mask,
+            &mut write_pos,
+            &ends,
+            last_room,
+        );
+    }
+
     let next_known = if spread_out {
         Some((min_u, shift))
     } else {
         None
+    };
+    let next_streak = if spread_out {
+        0
+    } else {
+        skew_streak.saturating_add(1)
     };
 
     // Recurse into occupied rooms via TZCNT checkpoint bitmasks.
@@ -290,7 +434,14 @@ fn in_place_maze<T: Integer>(
             let c = counts[r];
             if c > 1 {
                 let st = offsets[r];
-                in_place_maze(&mut src[st..st + c], stack_aux, buf, pending, next_known);
+                in_place_maze(
+                    &mut src[st..st + c],
+                    stack_aux,
+                    buf,
+                    pending,
+                    next_known,
+                    next_streak,
+                );
             }
         }
     }
@@ -366,8 +517,8 @@ pub(crate) fn scatter_block_buffered_with_scratch<T: Integer>(
     let pending_ptr = pending.as_mut_ptr() as *mut T;
 
     // SAFETY invariants (proven in ALGORITHM.md §4.2):
-    // - `pending_len <= 256 * (BLOCK_SIZE - 1) + 1 = 1793 < PENDING_CAP (2048)`
-    // - `dest < 256`, `bl < BLOCK_SIZE (8)`
+    // - `pending_len <= 256 * (BLOCK_SIZE - 1) + 1 = 7937 < PENDING_CAP (8192)`
+    // - `dest < 256`, `bl < BLOCK_SIZE (32)`
     // - `read_pos[r] < ends[r] <= src.len()` and `write_pos[dest] + BLOCK_SIZE <= ends[dest] <= src.len()`
     // - Every `pending[0..pending_len]` and `buf[dest][0..buf_len[dest]]` slot is initialized before read.
     unsafe {
@@ -481,7 +632,7 @@ pub(crate) fn stack_maze_pp<T: Integer>(
 ) {
     let n = src.len();
     if n <= LEAF_CUTOFF {
-        src.sort_unstable();
+        sort_leaf(src);
         if in_aux {
             // SAFETY: `src` and `dst` are non-overlapping slices of length `n`.
             unsafe {
@@ -611,7 +762,7 @@ pub(crate) fn stack_maze_pp<T: Integer>(
                 let c = counts[r] as usize;
                 if c > 1 {
                     let st = offsets[r] as usize;
-                    dst_init[st..st + c].sort_unstable();
+                    sort_leaf(&mut dst_init[st..st + c]);
                 }
             }
         }
@@ -642,7 +793,7 @@ pub(crate) fn stack_maze_pp<T: Integer>(
             let st = offsets[r] as usize;
             if c <= LEAF_CUTOFF {
                 if c > 1 {
-                    dst_init[st..st + c].sort_unstable();
+                    sort_leaf(&mut dst_init[st..st + c]);
                 }
                 if !in_aux {
                     // SAFETY: `dst_init[st..st+c]` and `src_ptr.add(st)` are non-overlapping.

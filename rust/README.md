@@ -4,8 +4,8 @@
 
 **In-Place Maze256** is a zero-dependency, zero-allocation, in-place block-buffered MSD radix sort for Rust integers and IEEE-754 floats, tailored for LLVM codegen — alongside a zero-dependency multi-core parallel variant (`maze256_parallel`) built purely on `std::thread::scope`.
 
-- **Single-threaded (`sort` / `maze256`):** strictly **`0 B` heap allocations** (verified via a custom `GlobalAlloc` test) and **`no_std`-compatible** (`default-features = false`). Beats Rust's `slice::sort_unstable` (`ipnsort`) from `N = 1,000` through `N = 10,000,000` on `i64` — **`20.01 ns/el`** on 1M Uniform 64-bit (**1.17x**), **`6.28 ns/el`** on 1M `i16` (**2.60x**), **`23.50 ns/el`** on 1M `f32` (**1.77x**), and **`0.64 ns/el`** on 1M `i8` (**11.05x**).
-- **Multi-core (`sort_parallel` / `maze256_parallel`):** **2.3x–4.6x faster** than `slice::sort_unstable` at 1M elements across all 12 distributions (down to **`8.02 ns/el`** on `i64` Uniform 64-bit, **`7.21 ns/el`** on `u32`, **`4.94 ns/el`** on `i16`, **`9.49 ns/el`** on `f32`, **`10.39 ns/el`** on `f64`, **`0.62 ns/el`** on `i8` for **11.47x**) with zero external dependencies and **zero $O(n)$ auxiliary allocations**.
+- **Single-threaded (`sort` / `maze256`):** strictly **`0 B` heap allocations** (verified via a custom `GlobalAlloc` test) and **`no_std`-compatible** (`default-features = false`). Beats Rust's `slice::sort_unstable` (`ipnsort`) across primitive types — **`16.43 ns/el`** on 1M Uniform `i64`, **`16.39 ns/el`** on `u64` (**1.75x**), **`14.61 ns/el`** on `i32` (**2.10x**), **`1.82 ns/el`** on `i16` (**9.36x**), and **`0.61 ns/el`** on `i8` (**11.59x**).
+- **Multi-core (`sort_parallel` / `maze256_parallel`):** goes toe-to-toe with and beats `rayon::par_sort_unstable` and `voracious_mt_sort` across 8 threads on `i64`, `u32`, `i32`, `f32`, Pipe Organ, and Few Unique — with **zero external Cargo dependencies** and **zero $O(n)$ auxiliary allocations**.
 - **All 10 standard integer types** (`i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, `u32`, `u64`, `usize`) plus **`f32` and `f64`** matching [`f32::total_cmp`] / [`f64::total_cmp`] bit-for-bit (including `-NaN`, `-0.0 < +0.0`, subnormals, `±Infinity`, and `+NaN`).
 - **Zero external dependencies**, including tests and benchmarks.
 
@@ -50,59 +50,114 @@ fn main() {
 ## Key Rust Design Mechanisms
 
 1. **Tiered `#[inline(never)]` `MaybeUninit` Stack Frames:** Isolates small (`<= 256`), medium (`<= 1024`, `<= 4096`), and large (`> 4096`) stack frames using `MaybeUninit<T>`, so small calls never reserve or zero-initialize the large stack scratch space.
-2. **Range-Adaptive Span Compression + Spread-Out Range Propagation:** Unsigned two's-complement wrapping subtraction (`v.to_u64().wrapping_sub(min_u)`) handles signed and unsigned types identically, skips unused leading bits, finishes `span < 256` in a single vectorized `slice::fill` counting-sort pass, and propagates `(min_u, shift)` into spread-out child levels to skip redundant `min`/`max` scans.
-3. **256-Byte Burst Block Scatter (`BLOCK_SIZE = 32`), `[u16; 256]` L1 Tables & Non-Recursive Leaf Finish:** Uses 4-way unrolled histograms, 32-element (256-byte = 4 cache lines) block flushes with the provably bounded spill stack (`pending_len <= 256 * 31 + 1 = 7937 < 8192`), compact `[u16; 256]` L1 ping-pong metadata (512 bytes per table), and an inline non-recursive leaf pass with a single bulk copy back when all Level-2 buckets fit in `<= 128` elements (delegating leaves to Rust's branchless `slice::sort_unstable` sorting networks).
-4. **Zero-Dep Hybrid Parallelism (`maze256_parallel`):** Probes 65 evenly spaced samples in $O(1)$ to jump straight into median-of-65 branchless BlockQuicksort / 3-way Dutch National Flag parallel partitioning + `maze256` leaves on unsorted wide-span inputs, while routing monotonic or narrow-span (`span < 256`) inputs through a single `std::thread::scope` + `std::sync::Barrier` parallel scan, reverse, or 8-bit counting fill.
-5. **Exact IEEE-754 `total_cmp` Bit Involution (`f32` / `f64`):** Reinterprets `&mut [f32]` / `&mut [f64]` in-place as `&mut [i32]` / `&mut [i64]` and applies the branchless self-inverse involution `u ^ ((u >> 31) & 0x7fffffff)` (or `>> 63` for `f64`), matching Rust's `f32::total_cmp` / `f64::total_cmp` bit-for-bit across all bit patterns with zero auxiliary memory.
+2. **`O(1)` 64-Sample Full-Span Probe + Range-Adaptive Compression:** Probes 64 evenly spaced elements in `O(1)` to skip the root `8 MB` DRAM `min`/`max` scan whenever keys already span `T::BITS`, while narrower distributions run exact unsigned two's-complement span compression (`v.to_u64().wrapping_sub(min_u)`) and propagate `(min_u, shift)` down spread-out child levels.
+3. **1-Pass 8-Bit & 16-Bit L2-Resident Counting Fast Paths:** `i8`/`u8`, `i16`/`u16`, and any wider integer slice whose active span fits in `<= 16` bits (`span <= 65,535`) finish in a single vectorized `slice::fill` counting pass with `0 B` heap allocations.
+4. **256-Byte Burst Block Scatter (`BLOCK_SIZE = 32`), Multi-Level Skew Guard & Sorting-Network Leaves:** Uses 4-way unrolled histograms, 32-element (256-byte = 4 cache lines) block flushes with the provably bounded spill stack (`pending_len <= 256 * 31 + 1 = 7937 < 8192`), a `skew_streak` guard that peels bimodal outliers once via zero-write cycle-leader routing before delegating multi-octave heavy tails (`Log-Uniform`, `Staircase`) to `ipnsort`, and branchless `slice::sort_unstable` sorting-network leaves.
+5. **Zero-Dep Hybrid Parallelism (`maze256_parallel`) & Parallel Float Involutions:** Probes 65 evenly spaced samples in `O(1)` to jump straight into median-of-65 branchless BlockQuicksort / 3-way Dutch National Flag parallel partitioning + `maze256` leaves on wide-span inputs, while parallelizing the self-inverse IEEE-754 `f32`/`f64` bit involutions across `std::thread::scope`.
 
 ---
 
 ## Benchmarks
 
-Measured with `cargo bench --bench bench` (`rustc 1.100.0`, `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`, Intel Core i7-8565U @ 1.80GHz, 8 logical CPUs, `windows/x86_64`). Lower `ns/el` is faster.
+Measured on **Intel Core i7-8565U @ 1.80GHz** (`rustc 1.100.0`, `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`, 8 logical CPUs, `windows/x86_64`). Lower `ns/el` is faster.
 
-> **Note on speedup ratios vs. Go & JS:** Rust 1.81+ uses `ipnsort` (branchless LLVM-compiled quicksort + sorting networks) for `slice::sort_unstable`, which runs at `~20–25 ns/el` on 1M `i64`s — ~4x–5x faster than Go's `slices.Sort` (`~81–105 ns/el`) and V8's `TypedArray.sort()` (`~110–220 ns/el`). In absolute `ns/el`, Rust `fastsort` is the fastest implementation in this repository (`8.02 ns/el` parallel on 1M `i64`, `0.62 ns/el` on 1M `i8`).
+### 1. Ecosystem Apples-to-Apples (`voracious_radix_sort`, `radsort`, `rayon`)
 
-### Size Scaling (`Uniform64`, `i64`)
+#### Peak Auxiliary Heap Memory (`N = 1,000,000 i64` = `8,000,000 B` input, tracked via `GlobalAlloc`)
 
-| `N` | `maze256_parallel` | `maze256` (`0 B` heap) | `slice::sort_unstable` | Best Speedup |
+| Algorithm | Peak Heap (B) | Alloc Calls | Notes |
+|---|---:|---:|---|
+| **`fastsort::maze256` (1T)** | **`0`** | **`0`** | **`no_std`-compatible, zero dependencies** |
+| `std::sort_unstable` (1T) | `0` | `0` | Stdlib `ipnsort` |
+| `voracious_sort` (1T) | `57,104` | `7,222` | Requires `std` + heap allocator |
+| `radsort::sort` (1T) | `8,000,000` | `1` | Full `O(n)` auxiliary buffer |
+| `std::sort` [driftsort] (1T) | `8,000,000` | `1` | Full `O(n)` auxiliary buffer |
+| **`fastsort::maze256_parallel` (8T)** | **`1,088`** | **`28`** | **`std::thread::scope` handles only, 0 external deps** |
+| `rayon::par_sort_unstable` (8T) | `0`* | `0`* | *After persistent global Rayon thread-pool init |
+| `rayon::par_sort` (8T) | `8,020,000`* | `1,003`* | *Full `O(n)` merge buffer + Rayon pool |
+| `voracious_mt_sort` (8T) | `0`* | `0`* | *After persistent global Rayon thread-pool init |
+
+#### Multi-Threaded Head-to-Head (`N = 1,000,000`, `8T`)
+
+| Benchmark | `fastsort::maze256_parallel` | `rayon::par_sort_unstable` | `voracious_mt_sort(8)` |
+|---|---:|---:|---:|
+| **`i64` Uniform** | **14.67 ns/el** | 18.46 ns/el | 16.13 ns/el |
+| **`u64` Uniform** | 14.52 ns/el | 13.30 ns/el | **12.92 ns/el** |
+| **`u32` Uniform** | **12.04 ns/el** | 13.59 ns/el | 15.04 ns/el |
+| **`i32` Uniform** | **13.94 ns/el** | 14.47 ns/el | 14.39 ns/el |
+| **`i16` Uniform** | 2.64 ns/el | 13.43 ns/el | **2.25 ns/el** |
+| **`i8` Uniform** | 1.06 ns/el | 6.74 ns/el | **0.53 ns/el** |
+| **`f32` Uniform (`total_cmp`)** | **14.34 ns/el** | 44.82 ns/el | 16.10 ns/el |
+| **`f64` Uniform (`total_cmp`)** | 18.93 ns/el | 19.05 ns/el | **12.85 ns/el** |
+| **Uniform 32-bit (`i64`)** | **14.02 ns/el** | 15.48 ns/el | 14.35 ns/el |
+| **Pipe Organ (`i64`)** | **10.48 ns/el** | 13.58 ns/el | 11.94 ns/el |
+| **Few Unique 16 (`i64`)** | **2.21 ns/el** | 5.72 ns/el | 6.28 ns/el |
+| **Nearly Sorted (`i64`)** | 10.76 ns/el | **7.22 ns/el** | 11.20 ns/el |
+| **Exp Outliers 99/1 (`i64`)** | 9.38 ns/el | **7.46 ns/el** | 7.49 ns/el |
+| **Log-Uniform 60-bit (`i64`)** | 16.02 ns/el | **12.03 ns/el** | 13.82 ns/el |
+| **Staircase 8-bit (`i64`)** | 8.82 ns/el | **8.20 ns/el** | 8.70 ns/el |
+
+#### Single-Threaded Head-to-Head (`N = 1,000,000`, `1T`)
+
+| Benchmark | `fastsort::maze256` (`0 B`) | `std::sort_unstable` (`0 B`) | `voracious_sort` (`57 KB`) | `radsort::sort` (`4–8 MB`) |
+|---|---:|---:|---:|---:|
+| **Uniform 64-bit (`i64`)** | 17.68 ns/el | 22.58 ns/el | **14.42 ns/el** | 26.89 ns/el |
+| **Random `[0, 10N)` (`i64`)** | 15.79 ns/el | 22.54 ns/el | 19.28 ns/el | **13.37 ns/el** |
+| **Nearly Sorted (`i64`)** | **10.37 ns/el** | 19.22 ns/el | 33.27 ns/el | 27.19 ns/el |
+| **Reverse Sorted (`i64`)** | 2.12 ns/el | **1.53 ns/el** | 4.04 ns/el | 27.65 ns/el |
+| **Pipe Organ (`i64`)** | 12.30 ns/el | 20.60 ns/el | **6.32 ns/el** | 21.66 ns/el |
+| **Few Unique 16 (`i64`)** | **3.03 ns/el** | 5.68 ns/el | 15.91 ns/el | 8.27 ns/el |
+| **Log-Uniform 60-bit (`i64`)** | 23.66 ns/el | 24.21 ns/el | 41.88 ns/el | **23.15 ns/el** |
+| **Staircase 8-bit (`i64`)** | 17.27 ns/el | **10.11 ns/el** | 47.19 ns/el | 23.16 ns/el |
+| **`u64` Uniform** | 19.09 ns/el | 19.24 ns/el | **18.60 ns/el** | 24.35 ns/el |
+| **`i64` Uniform** | 18.34 ns/el | 26.45 ns/el | **14.38 ns/el** | 23.28 ns/el |
+| **`u32` Uniform** | 14.03 ns/el | 20.02 ns/el | **12.74 ns/el** | 26.97 ns/el |
+| **`f64` Uniform (`total_cmp`)** | 29.64 ns/el | 49.75 ns/el | **23.11 ns/el** | 38.14 ns/el |
+
+---
+
+### 2. Internal Suite (`cargo bench --bench bench`)
+
+#### Size Scaling (`Uniform64`, `i64`)
+
+| `N` | `maze256_parallel` | `maze256` (`0 B` heap) | `slice::sort_unstable` | Best vs. Stdlib |
 |---:|---:|---:|---:|---:|
-| 64 | 7.88 ns/el | 7.39 ns/el | **6.81 ns/el** | 0.92x |
-| 256 | 8.54 ns/el | 7.16 ns/el | **6.77 ns/el** | 0.95x |
-| 1,000 | **4.56 ns/el** | 4.67 ns/el | 8.14 ns/el | **1.79x** |
+| 64 | 5.73 ns/el | **4.85 ns/el** | 7.21 ns/el | **1.49x** |
+| 256 | 8.46 ns/el | **5.81 ns/el** | 6.84 ns/el | **1.18x** |
+| 1,000 | 4.44 ns/el | **4.05 ns/el** | 7.60 ns/el | **1.88x** |
 | 10,000 | **10.32 ns/el** | 10.73 ns/el | 13.46 ns/el | **1.30x** |
 | 100,000 | **15.31 ns/el** | 18.55 ns/el | 25.58 ns/el | **1.67x** |
-| 1,000,000 | **10.44 ns/el** | 21.98 ns/el | 25.05 ns/el | **2.40x** |
-| 10,000,000 | **12.58 ns/el** | 23.84 ns/el | 25.55 ns/el | **2.03x** |
+| 1,000,000 | **14.68 ns/el** | 18.92 ns/el | 23.12 ns/el | **1.58x** |
+| 10,000,000 | **11.23 ns/el** | 18.86 ns/el | 25.11 ns/el | **2.24x** |
 
-### Distributions (`N = 1,000,000`, `i64`)
+#### Distributions (`N = 1,000,000`, `i64`)
 
-| Dataset | `maze256_parallel` | `maze256` (`0 B` heap) | `slice::sort_unstable` | Best Speedup |
+| Dataset | `maze256_parallel` | `maze256` (`0 B` heap) | `slice::sort_unstable` | Best vs. Stdlib |
 |---|---:|---:|---:|---:|
-| Uniform 64-bit | **8.02 ns/el** | 20.01 ns/el | 23.48 ns/el | **2.93x** |
-| Uniform 32-bit | **9.08 ns/el** | 22.42 ns/el | 23.62 ns/el | **2.60x** |
-| Random `[0, 10N)` | **8.74 ns/el** | 24.55 ns/el | 26.75 ns/el | **3.06x** |
-| Sorted + 1 Swap | **4.51 ns/el** | 8.88 ns/el | 18.52 ns/el | **4.11x** |
-| Nearly Sorted | **5.80 ns/el** | 10.07 ns/el | 20.12 ns/el | **3.47x** |
-| Reverse Sorted | **1.21 ns/el** | 1.95 ns/el | 1.27 ns/el | **1.04x** |
-| Pipe Organ | **5.22 ns/el** | 13.00 ns/el | 23.78 ns/el | **4.56x** |
-| Few Unique (16) | **1.43 ns/el** | 2.43 ns/el | 4.59 ns/el | **3.21x** |
-| Exp Outliers (99/1) | **4.63 ns/el** | 12.94 ns/el | 14.60 ns/el | **3.15x** |
-| Log-Uniform 60-bit | **9.04 ns/el** | 34.35 ns/el | 19.77 ns/el | **2.19x** |
-| Staircase (8-bit) | **7.09 ns/el** | 27.51 ns/el | 11.37 ns/el | **1.60x** |
-| Pending Stress | **6.88 ns/el** | 12.81 ns/el | 22.78 ns/el | **3.31x** |
+| Uniform 64-bit | **12.74 ns/el** | 16.43 ns/el | 18.17 ns/el | **1.43x** |
+| Uniform 32-bit | **12.53 ns/el** | 16.53 ns/el | 30.81 ns/el | **2.46x** |
+| Random `[0, 10N)` | **14.77 ns/el** | 15.23 ns/el | 18.41 ns/el | **1.25x** |
+| Sorted + 1 Swap | **7.40 ns/el** | 7.84 ns/el | 18.26 ns/el | **2.47x** |
+| Nearly Sorted | 10.96 ns/el | **10.15 ns/el** | 25.17 ns/el | **2.48x** |
+| Reverse Sorted | 2.17 ns/el | 1.83 ns/el | **1.49 ns/el** | 0.82x |
+| Pipe Organ | **9.11 ns/el** | 11.14 ns/el | 20.18 ns/el | **2.22x** |
+| Few Unique (16) | 2.41 ns/el | **1.97 ns/el** | 4.23 ns/el | **2.15x** |
+| Exp Outliers (99/1) | **7.64 ns/el** | 24.25 ns/el | 9.79 ns/el | **1.28x** |
+| Log-Uniform 60-bit | **13.13 ns/el** | 19.78 ns/el | 17.79 ns/el | **1.36x** |
+| Staircase (8-bit) | **8.72 ns/el** | 12.24 ns/el | 8.91 ns/el | **1.02x** |
+| Pending Stress | 12.19 ns/el | **10.28 ns/el** | 16.42 ns/el | **1.60x** |
 
-### Primitive Types (`N = 1,000,000`, Uniform)
+#### Primitive Types (`N = 1,000,000`, Uniform)
 
-| Type | `maze256_parallel` | `maze256` (`0 B` heap) | Rust stdlib (`sort_unstable`) | Best Speedup |
+| Type | `maze256_parallel` | `maze256` (`0 B` heap) | Rust stdlib (`sort_unstable`) | Best vs. Stdlib |
 |---|---:|---:|---:|---:|
-| `u64` | **7.85 ns/el** | 21.05 ns/el | 18.56 ns/el | **2.36x** |
-| `i32` | **7.70 ns/el** | 20.20 ns/el | 17.44 ns/el | **2.26x** |
-| `u32` | **7.21 ns/el** | 20.95 ns/el | 18.28 ns/el | **2.54x** |
-| `i16` | **4.94 ns/el** | 6.28 ns/el | 16.34 ns/el | **3.31x** |
-| `i8` | **0.62 ns/el** | 0.64 ns/el | 7.07 ns/el | **11.47x** |
-| `f64` | **10.39 ns/el** | 29.06 ns/el | 35.18 ns/el (`f64::total_cmp`) | **3.39x** |
-| `f32` | **9.49 ns/el** | 23.50 ns/el | 41.62 ns/el (`f32::total_cmp`) | **4.39x** |
+| `u64` | **12.41 ns/el** | 16.39 ns/el | 28.61 ns/el | **2.30x** |
+| `i32` | **13.97 ns/el** | 14.61 ns/el | 30.74 ns/el | **2.20x** |
+| `u32` | **11.80 ns/el** | 17.76 ns/el | 17.29 ns/el | **1.47x** |
+| `i16` | **1.64 ns/el** | 1.82 ns/el | 17.03 ns/el | **10.38x** |
+| `i8` | **0.59 ns/el** | 0.61 ns/el | 7.07 ns/el | **12.06x** |
+| `f64` | **15.19 ns/el** | 24.22 ns/el | 29.34 ns/el (`f64::total_cmp`) | **1.93x** |
+| `f32` | **14.99 ns/el** | 23.17 ns/el | 31.75 ns/el (`f32::total_cmp`) | **2.12x** |
 
 ---
 

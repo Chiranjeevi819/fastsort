@@ -114,6 +114,34 @@ Measured with `go test -run=^$ -bench . -benchmem -benchtime=300ms ./...` on **I
 | `int16` | **12.45 ns/el** | 14.99 ns/el | 77.60 ns/el | **6.23x** |
 | `int8` | 3.25 ns/el | **2.29 ns/el** | 37.30 ns/el | **16.29x** |
 
+### Ecosystem Apples-to-Apples (`N = 1,000,000 int64`, `GOMAXPROCS=8`)
+
+Head-to-head comparison against an 8-pass out-of-place LSD Radix Sort (`8 MB` auxiliary slice), `github.com/twotwotwo/sorts` (parallel MSD radix sort), and `github.com/jfcg/sorty/v2` (concurrent quicksort):
+
+#### Single-Threaded (`1T`)
+
+| Dataset | `fastsort.Maze256` (`0 B/op`) | `slices.Sort` (`0 B/op`) | Out-of-Place LSD Radix (`8 MB/op`) |
+|---|---:|---:|---:|
+| Uniform 64-bit | **22.64 ns/el** | 93.18 ns/el | 25.65 ns/el |
+| Uniform 32-bit | **24.74 ns/el** | 93.18 ns/el | 35.32 ns/el |
+| Nearly Sorted | **16.15 ns/el** | 20.87 ns/el | 50.46 ns/el |
+| Reverse Sorted | **1.70 ns/el** | 2.34 ns/el | 60.10 ns/el |
+| Few Unique (16) | **3.10 ns/el** | 20.74 ns/el | 90.14 ns/el |
+| Exp Outliers (99/1) | **17.50 ns/el** | 35.80 ns/el | 30.09 ns/el |
+| Log-Uniform 60-bit | 61.95 ns/el | 80.67 ns/el | **22.47 ns/el** |
+
+#### Multi-Threaded (`8 GOMAXPROCS`)
+
+| Dataset | `fastsort.Maze256Parallel` (`34 KB/op`) | `twotwotwo/sorts` (`9 KB/op`) | `jfcg/sorty/v2` (`18 KB/op`) |
+|---|---:|---:|---:|
+| Uniform 64-bit | **19.18 ns/el** | 42.76 ns/el | 49.01 ns/el |
+| Uniform 32-bit | **17.13 ns/el** | 47.42 ns/el | 46.98 ns/el |
+| Nearly Sorted | 12.23 ns/el | 26.78 ns/el | **11.96 ns/el** |
+| Reverse Sorted | **1.25 ns/el** | 34.76 ns/el | 6.77 ns/el |
+| Few Unique (16) | **3.27 ns/el** | 15.18 ns/el | 15.20 ns/el |
+| Exp Outliers (99/1) | **25.33 ns/el** | 64.04 ns/el | 26.42 ns/el |
+| Log-Uniform 60-bit | **28.75 ns/el** | 101.80 ns/el | 36.38 ns/el |
+
 ```bash
 go test -v ./...
 go test -run=^$ -bench . -benchmem -benchtime=300ms ./...
