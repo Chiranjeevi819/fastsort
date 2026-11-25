@@ -1,9 +1,9 @@
-# fastsort (Go)
+# mazesort (Go)
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/Chiranjeevi819/fastsort/go.svg)](https://pkg.go.dev/github.com/Chiranjeevi819/fastsort/go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Chiranjeevi819/mazesort/go.svg)](https://pkg.go.dev/github.com/Chiranjeevi819/mazesort/go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**In-Place Maze256** is a pure-Go, zero-allocation, in-place block-buffered MSD radix sort inspired by Ska Sort and IPS²Ra, tailored for Go's stack and escape analysis — alongside a hybrid multi-core parallel variant (`Maze256Parallel`).
+**MazeSort** (**In-Place Maze256**) is a pure-Go, zero-allocation, in-place block-buffered MSD radix sort inspired by Ska Sort and IPS²Ra, tailored for Go's stack and escape analysis — alongside a hybrid multi-core parallel variant (`Maze256Parallel`).
 
 - **Single-threaded (`Sort` / `Maze256`):** strictly **`0 B/op`, `0 allocs/op`**, **3x–4.5x faster** than `slices.Sort` on random 32-bit/64-bit integers (up to **16x** on `int8`).
 - **Multi-core (`SortParallel` / `Maze256Parallel`):** **5.5x–10x faster** than `slices.Sort` at 1M elements with constant `O(GOMAXPROCS)` (~26 KB) worker metadata and **zero $O(n)$ auxiliary slice allocations**.
@@ -15,7 +15,7 @@
 ## Installation
 
 ```bash
-go get github.com/Chiranjeevi819/fastsort/go
+go get github.com/Chiranjeevi819/mazesort/go
 ```
 
 ## Quick Start
@@ -25,20 +25,20 @@ package main
 
 import (
 	"fmt"
-	fastsort "github.com/Chiranjeevi819/fastsort/go"
+	"github.com/Chiranjeevi819/mazesort/go"
 )
 
 func main() {
 	nums := []int64{42, -7, 1000, 0, -999, 13}
-	fastsort.Sort(nums) // delegates to fastsort.Maze256 (0 B/op, 0 allocs/op)
+	mazesort.Sort(nums) // delegates to mazesort.Maze256 (0 B/op, 0 allocs/op)
 	fmt.Println(nums)   // [-999 -7 0 13 42 1000]
 
 	type DocID uint32
 	ids := []DocID{500, 12, 99999, 1, 42}
-	fastsort.Maze256(ids)
+	mazesort.Maze256(ids)
 
 	// Multi-core parallel sort for large slices (>= 32,768 elements):
-	fastsort.SortParallel(nums) // delegates to fastsort.Maze256Parallel
+	mazesort.SortParallel(nums) // delegates to mazesort.Maze256Parallel
 }
 ```
 
@@ -120,7 +120,7 @@ Head-to-head comparison against an 8-pass out-of-place LSD Radix Sort (`8 MB` au
 
 #### Single-Threaded (`1T`)
 
-| Dataset | `fastsort.Maze256` (`0 B/op`) | `slices.Sort` (`0 B/op`) | Out-of-Place LSD Radix (`8 MB/op`) |
+| Dataset | `mazesort.Maze256` (`0 B/op`) | `slices.Sort` (`0 B/op`) | Out-of-Place LSD Radix (`8 MB/op`) |
 |---|---:|---:|---:|
 | Uniform 64-bit | **22.64 ns/el** | 93.18 ns/el | 25.65 ns/el |
 | Uniform 32-bit | **24.74 ns/el** | 93.18 ns/el | 35.32 ns/el |
@@ -132,7 +132,7 @@ Head-to-head comparison against an 8-pass out-of-place LSD Radix Sort (`8 MB` au
 
 #### Multi-Threaded (`8 GOMAXPROCS`)
 
-| Dataset | `fastsort.Maze256Parallel` (`34 KB/op`) | `twotwotwo/sorts` (`9 KB/op`) | `jfcg/sorty/v2` (`18 KB/op`) |
+| Dataset | `mazesort.Maze256Parallel` (`34 KB/op`) | `twotwotwo/sorts` (`9 KB/op`) | `jfcg/sorty/v2` (`18 KB/op`) |
 |---|---:|---:|---:|
 | Uniform 64-bit | **19.18 ns/el** | 42.76 ns/el | 49.01 ns/el |
 | Uniform 32-bit | **17.13 ns/el** | 47.42 ns/el | 46.98 ns/el |

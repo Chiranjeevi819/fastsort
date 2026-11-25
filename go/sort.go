@@ -1,4 +1,4 @@
-package fastsort
+package mazesort
 
 // Integer constrains integer sorting algorithms to all built-in signed and
 // unsigned integer types, as well as user-defined types with those underlying types.

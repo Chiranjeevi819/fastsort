@@ -1,12 +1,12 @@
-//! `fastsort` — Zero-dependency, zero-allocation **In-Place Maze256** sorting
-//! for Rust integers and IEEE-754 floats.
+//! `mazesort` — Zero-dependency, zero-allocation **MazeSort** (**In-Place Maze256**)
+//! sorting for Rust integers and IEEE-754 floats.
 //!
 //! # Algorithms
 //!
 //! - [`sort`] / [`maze256`]: Single-threaded, strictly in-place (`0 B` heap
 //!   allocations, works in `no_std`) range-adaptive 8-bit MSD radix sort with
-//!   tiered `#[inline(never)]` stack frames, 64-byte cache-line block-buffered
-//!   scatter, provably bounded spill stack (`pending <= 1793 < 2048`),
+//!   tiered `#[inline(never)]` stack frames, 256-byte burst block-buffered
+//!   scatter, provably bounded spill stack (`pending <= 7937 < 8192`),
 //!   cycle-leader fallback for skewed data, and TZCNT `[u64; 4]` bitmasks.
 //! - [`sort_parallel`] / [`maze256_parallel`] *(default `std` feature)*:
 //!   Multi-core hybrid parallel variant built purely on [`std::thread::scope`]
@@ -19,11 +19,11 @@
 //!
 //! ```rust
 //! let mut nums = vec![42i64, -7, 1000, 0, -999, 13];
-//! fastsort::sort(&mut nums);
+//! mazesort::sort(&mut nums);
 //! assert_eq!(nums, vec![-999, -7, 0, 13, 42, 1000]);
 //!
 //! let mut floats = vec![f32::NAN, 1.5, -0.0, 0.0, f32::NEG_INFINITY, -1.5];
-//! fastsort::sort_f32(&mut floats);
+//! mazesort::sort_f32(&mut floats);
 //! assert_eq!(floats[0], f32::NEG_INFINITY);
 //! assert_eq!(floats[1], -1.5);
 //! assert!(floats[2].is_sign_negative() && floats[2] == 0.0);

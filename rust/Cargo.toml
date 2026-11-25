@@ -1,13 +1,13 @@
 [package]
-name = "fastsort"
+name = "mazesort"
 version = "0.1.0"
 edition = "2021"
 authors = ["Chiranjeevi D"]
-description = "Zero-dependency, zero-allocation In-Place Maze256 MSD radix sort for integers and floats (single-threaded and multi-core parallel)."
+description = "MazeSort — Zero-dependency, zero-allocation In-Place Maze256 MSD radix sort for integers and floats (single-threaded and multi-core parallel)."
 license = "MIT"
-repository = "https://github.com/Chiranjeevi819/fastsort"
+repository = "https://github.com/Chiranjeevi819/mazesort"
 readme = "README.md"
-keywords = ["sort", "radix-sort", "in-place", "fast", "parallel"]
+keywords = ["mazesort", "sort", "radix-sort", "in-place", "parallel"]
 categories = ["algorithms", "no-std"]
 
 [features]

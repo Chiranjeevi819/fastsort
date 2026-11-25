@@ -43,7 +43,7 @@ fn test_sort_zero_heap_allocations() {
         let before_count = ALLOC_COUNT.load(Ordering::SeqCst);
         let before_bytes = ALLOC_BYTES.load(Ordering::SeqCst);
 
-        fastsort::sort(&mut data);
+        mazesort::sort(&mut data);
 
         let after_count = ALLOC_COUNT.load(Ordering::SeqCst);
         let after_bytes = ALLOC_BYTES.load(Ordering::SeqCst);
@@ -66,7 +66,7 @@ fn test_sort_zero_heap_allocations() {
     // Verify float sorts also perform 0 heap allocations.
     let mut floats: Vec<f64> = (0..50_000).map(|_| f64::from_bits(next_u64())).collect();
     let before = ALLOC_COUNT.load(Ordering::SeqCst);
-    fastsort::sort_f64(&mut floats);
+    mazesort::sort_f64(&mut floats);
     let after = ALLOC_COUNT.load(Ordering::SeqCst);
     assert_eq!(after - before, 0, "sort_f64 allocated on the heap");
 }

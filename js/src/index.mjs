@@ -41,7 +41,7 @@ export function maze256(data) {
   if (data instanceof Int16Array) return sort16BitSigned(data);
   if (data instanceof Uint16Array) return sort16BitUnsigned(data);
   throw new TypeError(
-    "fastsort.maze256 supports Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, and Float32Array"
+    "mazesort.maze256 supports Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, and Float32Array"
   );
 }
 

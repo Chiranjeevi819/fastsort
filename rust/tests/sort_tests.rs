@@ -1,4 +1,4 @@
-use fastsort::{
+use mazesort::{
     maze256, maze256_f32, maze256_f32_parallel, maze256_f64, maze256_f64_parallel,
     maze256_parallel, sort, sort_f32, sort_f64, sort_parallel, Integer,
 };

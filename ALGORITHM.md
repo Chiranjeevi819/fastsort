@@ -1,6 +1,6 @@
 # In-Place Maze256 — Algorithm Design & Pseudocode
 
-This document explains the **In-Place Maze256** sorting algorithm used in `fastsort`, the traditional sorting problems it was designed to overcome, the mathematical invariants that keep its memory strictly $O(1)$, and full language-agnostic pseudocode for both the single-threaded and multi-core parallel engines.
+This document explains the **MazeSort** (**In-Place Maze256**) sorting algorithm used in `mazesort`, the traditional sorting problems it was designed to overcome, the mathematical invariants that keep its memory strictly $O(1)$, and full language-agnostic pseudocode for both the single-threaded and multi-core parallel engines.
 
 ---
 

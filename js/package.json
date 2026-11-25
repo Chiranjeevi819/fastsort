@@ -1,7 +1,7 @@
 {
-  "name": "@chiranjeevi819/fastsort",
+  "name": "mazesort",
   "version": "0.1.0",
-  "description": "Zero-allocation in-place block-buffered MSD radix sort (Maze256) for JavaScript/TypeScript TypedArrays",
+  "description": "MazeSort — Zero-allocation in-place block-buffered MSD radix sort (Maze256) for JavaScript/TypeScript TypedArrays",
   "type": "module",
   "exports": {
     ".": {
@@ -21,6 +21,7 @@
     "bench": "node bench/bench.mjs"
   },
   "keywords": [
+    "mazesort",
     "sort",
     "sorting",
     "radix-sort",
@@ -36,7 +37,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Chiranjeevi819/fastsort.git",
+    "url": "https://github.com/Chiranjeevi819/mazesort.git",
     "directory": "js"
   },
   "engines": {

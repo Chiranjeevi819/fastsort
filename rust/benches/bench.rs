@@ -1,7 +1,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fastsort::{
+use mazesort::{
     maze256, maze256_f32, maze256_f32_parallel, maze256_f64, maze256_f64_parallel,
     maze256_parallel,
 };
@@ -169,7 +169,7 @@ fn main() {
         .map(|n| n.get())
         .unwrap_or(1);
     println!(
-        "Rust fastsort benchmarks ({threads} logical CPUs, ns/elem — lower is faster)\n"
+        "Rust mazesort benchmarks ({threads} logical CPUs, ns/elem — lower is faster)\n"
     );
 
     // 1. Size scaling (Uniform64, i64)

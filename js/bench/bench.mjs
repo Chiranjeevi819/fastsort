@@ -31,7 +31,7 @@ function bench(fn, template, iters) {
   return (totalMs * 1e6) / (template.length * iters);
 }
 
-console.log(`Node ${process.version} — V8 TypedArray.sort() vs fastsort.maze256 (ns/elem — lower is faster)\n`);
+console.log(`Node ${process.version} — V8 TypedArray.sort() vs mazesort.maze256 (ns/elem — lower is faster)\n`);
 
 const rng = makeRng(108);
 

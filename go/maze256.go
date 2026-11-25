@@ -1,4 +1,4 @@
-package fastsort
+package mazesort
 
 import (
 	"math/bits"

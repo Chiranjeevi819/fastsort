@@ -1,6 +1,6 @@
-# @chiranjeevi819/fastsort (JavaScript / TypeScript)
+# mazesort (JavaScript / TypeScript)
 
-Zero-dependency, zero-per-call-allocation **In-Place Maze256** sorting for JavaScript & TypeScript `TypedArray`s, tailored for V8 TurboFan's monomorphic `Int32Array` pipeline.
+Zero-dependency, zero-per-call-allocation **MazeSort** (**In-Place Maze256**) sorting for JavaScript & TypeScript `TypedArray`s, tailored for V8 TurboFan's monomorphic `Int32Array` pipeline.
 
 - **Supported types:** `Int8Array`, `Uint8Array`, `Uint8ClampedArray`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, and `Float32Array`.
 - **Zero per-call heap allocations:** Hoists fixed scratch buffers once per JS realm (~300 KB total including the 16-bit counting table) so repeated sorts generate zero GC pressure.
@@ -12,13 +12,13 @@ Zero-dependency, zero-per-call-allocation **In-Place Maze256** sorting for JavaS
 ## Installation
 
 ```bash
-npm install @chiranjeevi819/fastsort
+npm install mazesort
 ```
 
 ## Quick Start
 
 ```js
-import { sort, maze256, maze256Float32 } from "@chiranjeevi819/fastsort";
+import { sort, maze256, maze256Float32 } from "mazesort";
 
 const ids = new Int32Array([42, -7, 1000, 0, -999, 13]);
 sort(ids);
@@ -44,7 +44,7 @@ Measured with `npm run bench` (`node bench/bench.mjs`) on **Node v24.7.0** (Inte
 
 ### TypedArray Types (`N = 1,000,000`, Uniform)
 
-| Type | `fastsort.maze256` | `V8 TypedArray.sort()` | Speedup |
+| Type | `mazesort.maze256` | `V8 TypedArray.sort()` | Speedup |
 |---|---:|---:|---:|
 | `Int32Array` | **63.45 ns/el** | 110.28 ns/el | **1.74x** |
 | `Uint32Array` | **59.97 ns/el** | 117.73 ns/el | **1.96x** |
@@ -54,7 +54,7 @@ Measured with `npm run bench` (`node bench/bench.mjs`) on **Node v24.7.0** (Inte
 
 ### `Int32Array` Size Scaling (Uniform 32-bit)
 
-| `N` | `fastsort.maze256Int32` | `V8 TypedArray.sort()` | Speedup |
+| `N` | `mazesort.maze256Int32` | `V8 TypedArray.sort()` | Speedup |
 |---:|---:|---:|---:|
 | 1,000 | 62.67 ns/el | **47.39 ns/el** | 0.76x |
 | 10,000 | **76.00 ns/el** | 117.39 ns/el | **1.54x** |
@@ -65,7 +65,7 @@ Measured with `npm run bench` (`node bench/bench.mjs`) on **Node v24.7.0** (Inte
 
 Comparison against a 4-pass out-of-place LSD Radix Sort (`4 MB` `Int32Array` allocation per call), a hand-rolled `Int32Array` QuickSort (`0 B/call`), and V8's built-in `TypedArray.prototype.sort()` (`0 B/call` Timsort):
 
-| Dataset | `fastsort.maze256Int32` (`0 B/call`) | Out-of-Place LSD (`4 MB/call`) | JS QuickSort (`0 B/call`) | V8 `.sort()` (`0 B/call`) |
+| Dataset | `mazesort.maze256Int32` (`0 B/call`) | Out-of-Place LSD (`4 MB/call`) | JS QuickSort (`0 B/call`) | V8 `.sort()` (`0 B/call`) |
 |---|---:|---:|---:|---:|
 | Uniform 32-bit | 71.24 ns/el | **30.53 ns/el** | 155.53 ns/el | 131.33 ns/el |
 | Narrow `[0, 1000)` | 33.43 ns/el | **25.71 ns/el** | 104.59 ns/el | 78.16 ns/el |

@@ -1,8 +1,8 @@
-# fastsort (Rust)
+# mazesort (Rust)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**In-Place Maze256** is a zero-dependency, zero-allocation, in-place block-buffered MSD radix sort for Rust integers and IEEE-754 floats, tailored for LLVM codegen — alongside a zero-dependency multi-core parallel variant (`maze256_parallel`) built purely on `std::thread::scope`.
+**MazeSort** (**In-Place Maze256**) is a zero-dependency, zero-allocation, in-place block-buffered MSD radix sort for Rust integers and IEEE-754 floats, tailored for LLVM codegen — alongside a zero-dependency multi-core parallel variant (`maze256_parallel`) built purely on `std::thread::scope`.
 
 - **Single-threaded (`sort` / `maze256`):** strictly **`0 B` heap allocations** (verified via a custom `GlobalAlloc` test) and **`no_std`-compatible** (`default-features = false`). Beats Rust's `slice::sort_unstable` (`ipnsort`) across primitive types — **`16.43 ns/el`** on 1M Uniform `i64`, **`16.39 ns/el`** on `u64` (**1.75x**), **`14.61 ns/el`** on `i32` (**2.10x**), **`1.82 ns/el`** on `i16` (**9.36x**), and **`0.61 ns/el`** on `i8` (**11.59x**).
 - **Multi-core (`sort_parallel` / `maze256_parallel`):** goes toe-to-toe with and beats `rayon::par_sort_unstable` and `voracious_mt_sort` across 8 threads on `i64`, `u32`, `i32`, `f32`, Pipe Organ, and Few Unique — with **zero external Cargo dependencies** and **zero $O(n)$ auxiliary allocations**.
@@ -13,13 +13,15 @@
 
 ## Usage
 
-Add `fastsort` from this repository (or path dependency):
+Add `mazesort`:
 
 ```toml
 [dependencies]
-fastsort = { git = "https://github.com/Chiranjeevi819/fastsort", subdir = "rust" }
+mazesort = "0.1"
+# Or from Git:
+# mazesort = { git = "https://github.com/Chiranjeevi819/mazesort", subdir = "rust" }
 # For `no_std` (single-threaded only, 0 heap allocations):
-# fastsort = { git = "https://github.com/Chiranjeevi819/fastsort", default-features = false }
+# mazesort = { version = "0.1", default-features = false }
 ```
 
 ## Quick Start
@@ -28,20 +30,20 @@ fastsort = { git = "https://github.com/Chiranjeevi819/fastsort", subdir = "rust"
 fn main() {
     // Single-threaded, 0 heap allocations:
     let mut nums = vec![42i64, -7, 1000, 0, -999, 13];
-    fastsort::sort(&mut nums); // delegates to fastsort::maze256
+    mazesort::sort(&mut nums); // delegates to mazesort::maze256
     assert_eq!(nums, vec![-999, -7, 0, 13, 42, 1000]);
 
     // Multi-core parallel sort for large slices (>= 65,536 elements):
     let mut big: Vec<u32> = (0..1_000_000).rev().collect();
-    fastsort::sort_parallel(&mut big); // delegates to fastsort::maze256_parallel
+    mazesort::sort_parallel(&mut big); // delegates to mazesort::maze256_parallel
 
     // IEEE-754 floats (exact f32::total_cmp / f64::total_cmp order, 0 heap allocs):
     let mut depths = vec![f32::NAN, 1.5, -0.0, 0.0, f32::NEG_INFINITY, -1.5];
-    fastsort::sort_f32(&mut depths);
+    mazesort::sort_f32(&mut depths);
     // [-inf, -1.5, -0.0, +0.0, 1.5, NaN]
 
     let mut scores = vec![3.14f64, -2.71, f64::INFINITY, -0.0, 0.0];
-    fastsort::sort_f64_parallel(&mut scores);
+    mazesort::sort_f64_parallel(&mut scores);
 }
 ```
 
@@ -67,19 +69,19 @@ Measured on **Intel Core i7-8565U @ 1.80GHz** (`rustc 1.100.0`, `opt-level = 3`,
 
 | Algorithm | Peak Heap (B) | Alloc Calls | Notes |
 |---|---:|---:|---|
-| **`fastsort::maze256` (1T)** | **`0`** | **`0`** | **`no_std`-compatible, zero dependencies** |
+| **`mazesort::maze256` (1T)** | **`0`** | **`0`** | **`no_std`-compatible, zero dependencies** |
 | `std::sort_unstable` (1T) | `0` | `0` | Stdlib `ipnsort` |
 | `voracious_sort` (1T) | `57,104` | `7,222` | Requires `std` + heap allocator |
 | `radsort::sort` (1T) | `8,000,000` | `1` | Full `O(n)` auxiliary buffer |
 | `std::sort` [driftsort] (1T) | `8,000,000` | `1` | Full `O(n)` auxiliary buffer |
-| **`fastsort::maze256_parallel` (8T)** | **`1,088`** | **`28`** | **`std::thread::scope` handles only, 0 external deps** |
+| **`mazesort::maze256_parallel` (8T)** | **`1,088`** | **`28`** | **`std::thread::scope` handles only, 0 external deps** |
 | `rayon::par_sort_unstable` (8T) | `0`* | `0`* | *After persistent global Rayon thread-pool init |
 | `rayon::par_sort` (8T) | `8,020,000`* | `1,003`* | *Full `O(n)` merge buffer + Rayon pool |
 | `voracious_mt_sort` (8T) | `0`* | `0`* | *After persistent global Rayon thread-pool init |
 
 #### Multi-Threaded Head-to-Head (`N = 1,000,000`, `8T`)
 
-| Benchmark | `fastsort::maze256_parallel` | `rayon::par_sort_unstable` | `voracious_mt_sort(8)` |
+| Benchmark | `mazesort::maze256_parallel` | `rayon::par_sort_unstable` | `voracious_mt_sort(8)` |
 |---|---:|---:|---:|
 | **`i64` Uniform** | **14.67 ns/el** | 18.46 ns/el | 16.13 ns/el |
 | **`u64` Uniform** | 14.52 ns/el | 13.30 ns/el | **12.92 ns/el** |
@@ -99,7 +101,7 @@ Measured on **Intel Core i7-8565U @ 1.80GHz** (`rustc 1.100.0`, `opt-level = 3`,
 
 #### Single-Threaded Head-to-Head (`N = 1,000,000`, `1T`)
 
-| Benchmark | `fastsort::maze256` (`0 B`) | `std::sort_unstable` (`0 B`) | `voracious_sort` (`57 KB`) | `radsort::sort` (`4–8 MB`) |
+| Benchmark | `mazesort::maze256` (`0 B`) | `std::sort_unstable` (`0 B`) | `voracious_sort` (`57 KB`) | `radsort::sort` (`4–8 MB`) |
 |---|---:|---:|---:|---:|
 | **Uniform 64-bit (`i64`)** | 17.68 ns/el | 22.58 ns/el | **14.42 ns/el** | 26.89 ns/el |
 | **Random `[0, 10N)` (`i64`)** | 15.79 ns/el | 22.54 ns/el | 19.28 ns/el | **13.37 ns/el** |
